@@ -15,15 +15,26 @@ export async function POST(req: NextRequest) {
       config: { model: model.trim() },
     });
 
-    const signatureStr = `userDirections:string -> detailedPrompt:string "${systemPrompt.replace(/"/g, '\\"')}"`;
-
+    // Step 1: V1 Generator
+    const signatureStr = `userDirections:string -> v1Prompt:string "${systemPrompt.replace(/"/g, '\\"')}"`;
     const promptEngineer = ax(signatureStr);
+    const v1Result = await promptEngineer.forward(llm, { userDirections });
+    const v1Prompt = String(v1Result?.v1Prompt || '');
 
-    const result = await promptEngineer.forward(llm, { userDirections });
+    // Step 2: Critic
+    const criticSignature = `v1Prompt:string -> critique:string "You are a Senior Principal Architect. Review this V1 meta-prompt for missing technical requirements, security flaws, missing libraries, or unhandled edge cases based on the user's intent. Output a concise critique highlighting exactly what needs to be added or fixed to make it a bulletproof, production-grade meta-prompt."`;
+    const critic = ax(criticSignature);
+    const criticResult = await critic.forward(llm, { v1Prompt });
+    const critique = String(criticResult?.critique || '');
 
-    const detailedPrompt = result?.detailedPrompt?.trim?.() || '';
+    // Step 3: Refiner (V2)
+    const refinerSignature = `userDirections:string, v1Prompt:string, critique:string -> detailedPrompt:string "${systemPrompt.replace(/"/g, '\\"')} Improve the V1 meta-prompt extremely rigorously by incorporating the structural critique. Output the final, mathematically perfect prompt."`;
+    const refiner = ax(refinerSignature);
+    const result = await refiner.forward(llm, { userDirections, v1Prompt, critique });
 
-    return NextResponse.json({ detailedPrompt });
+    const detailedPrompt = String(result?.detailedPrompt || '').trim();
+
+    return NextResponse.json({ detailedPrompt, critique, v1Prompt });
   } catch (error: unknown) {
     console.error(error);
     return NextResponse.json(

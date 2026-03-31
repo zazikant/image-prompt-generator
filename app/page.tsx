@@ -117,6 +117,7 @@ export default function Home() {
   const [model, setModel] = useState('arcee-ai/trinity-large-preview:free');
   const [apiKey, setApiKey] = useState('');
   const [result, setResult] = useState('');
+  const [critique, setCritique] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -128,6 +129,7 @@ export default function Home() {
     setLoading(true);
     setError('');
     setResult('');
+    setCritique('');
 
     try {
       const res = await fetch('/api/generate', {
@@ -141,10 +143,11 @@ export default function Home() {
         }),
       });
 
-      const data: { detailedPrompt?: string; error?: string } = await res.json();
+      const data: { detailedPrompt?: string; critique?: string; error?: string } = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to generate');
 
       setResult(data.detailedPrompt || '');
+      setCritique(data.critique || '');
     } catch (err: unknown) {
       setError((err as Error).message);
     } finally {
@@ -231,13 +234,20 @@ export default function Home() {
           disabled={loading || !userDirections.trim()}
           className="w-full bg-white text-black py-5 rounded-2xl font-semibold text-xl hover:bg-zinc-200 disabled:opacity-50 transition-all"
         >
-          {loading ? 'Generating Prompt (Ax DSPy)...' : 'Generate Image Prompt'}
+          {loading ? 'Running Agentic Reflection Loop...' : 'Generate AI Meta-Prompt'}
         </button>
 
         {error && <p className="mt-4 text-red-400 text-center">{error}</p>}
 
+        {critique && (
+          <div className="mt-8 bg-zinc-900 border border-yellow-700/50 rounded-2xl p-6">
+            <h3 className="text-xl font-semibold mb-3 text-yellow-500">Agentic Reflection (Critique)</h3>
+            <p className="text-sm text-zinc-300 leading-relaxed max-h-[200px] overflow-auto border-l-2 border-yellow-600 pl-4 whitespace-pre-wrap">{critique}</p>
+          </div>
+        )}
+
         {result && (
-          <div className="mt-12">
+          <div className="mt-8">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-2xl font-semibold">Generated Prompt</h3>
               <button
