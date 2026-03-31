@@ -31,21 +31,21 @@ export async function POST(req: NextRequest) {
       async start(controller) {
         try {
           if (step === 'v1' || !step) {
-            const signature = 'systemPrompt:string, userDirections:string -> v1Prompt:string';
+            const signature = '"Act as an expert prompt engineer. Follow the constraints in systemPrompt to vividly expand the userDirections into a high-quality AI image generation prompt." systemPrompt:string, userDirections:string -> v1Prompt:string';
             const gen = ax(signature);
             const res = await gen.forward(llm, { systemPrompt, userDirections }, { stream: true }) as unknown as AsyncIterable<any>;
             for await (const chunk of res) {
               if (chunk.v1Prompt) controller.enqueue(encoder.encode(chunk.v1Prompt));
             }
           } else if (step === 'critic') {
-            const signature = '"You are a Senior Principal Architect. Review this V1 meta-prompt against the original goal defined above. Identify missing technical requirements, security flaws, or unhandled edge cases. Output a concise critique highlighting exactly what needs to be added to reach production-grade quality." systemPrompt:string, v1Prompt:string -> critique:string';
+            const signature = '"You are a Senior Principal Architect. Review the V1 prompt against the original systemPrompt instructions. Identify missing technical requirements and output a concise critique." systemPrompt:string, v1Prompt:string -> critique:string';
             const gen = ax(signature);
             const res = await gen.forward(llm, { systemPrompt, v1Prompt }, { stream: true }) as unknown as AsyncIterable<any>;
             for await (const chunk of res) {
               if (chunk.critique) controller.enqueue(encoder.encode(chunk.critique));
             }
           } else if (step === 'refine') {
-            const signature = '"YOU ARE A MASTER PROMPT ENGINEER. Your mission is to rebuild the [V1Prompt] by surgically integrating every technical, artistic, and structural requirement from the [Architect\'s Critique]. You MUST update all relevant sections of the original instructions to reflect the new criteria mentioned in the critique. Do not just repeat the V1—EVOLVE it into a masterpiece." systemPrompt:string, userDirections:string, v1Prompt:string, critique:string -> detailedPrompt:string';
+            const signature = '"You are a master prompt engineer. Rebuild the v1Prompt by integrating every requirement from the critique while following the systemPrompt constraints." systemPrompt:string, userDirections:string, v1Prompt:string, critique:string -> detailedPrompt:string';
             const gen = ax(signature);
             const res = await gen.forward(llm, { systemPrompt, userDirections, v1Prompt, critique }, { stream: true }) as unknown as AsyncIterable<any>;
             for await (const chunk of res) {
