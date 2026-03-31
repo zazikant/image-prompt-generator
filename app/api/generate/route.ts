@@ -15,8 +15,11 @@ export async function POST(req: NextRequest) {
       config: { model: model.trim() },
     });
 
+    // Helper to safely escape docstrings for Ax signatures
+    const safeDoc = systemPrompt.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+
     // Step 1: V1 Generator
-    const v1Signature = `"${systemPrompt.replace(/"/g, '\\"')}" userDirections:string -> v1Prompt:string`;
+    const v1Signature = `"${safeDoc}" userDirections:string -> v1Prompt:string`;
     const promptEngineer = ax(v1Signature);
     const v1Result = await promptEngineer.forward(llm, { userDirections });
     const v1Prompt = String(v1Result?.v1Prompt || '');
@@ -36,7 +39,7 @@ export async function POST(req: NextRequest) {
     const critique = String(criticResult?.critique || '');
 
     // Step 3: Refiner (V2)
-    const refinerSignature = `"YOU ARE A MASTER PROMPT ENGINEER. Your mission is to rebuild the [V1Prompt] by surgically integrating every technical requirement from the [Architect's Critique]. You MUST update the Tech Stack, Key Constraints, and Requirements sections in the original docstring to reflect new Security, Infrastructure, and Observability rules. Do not just repeat the V1—EVOLVE it into a production-grade masterpiece. ${systemPrompt.replace(/"/g, '\\"')}" userDirections:string, v1Prompt:string, critique:string -> detailedPrompt:string`;
+    const refinerSignature = `"YOU ARE A MASTER PROMPT ENGINEER. Your mission is to rebuild the [V1Prompt] by surgically integrating every technical, artistic, and structural requirement from the [Architect's Critique]. You MUST update all relevant sections of the original instructions to reflect the new criteria mentioned in the critique. Do not just repeat the V1—EVOLVE it into a masterpiece. ${safeDoc}" userDirections:string, v1Prompt:string, critique:string -> detailedPrompt:string`;
     const refiner = ax(refinerSignature);
     const result = await refiner.forward(llm, { userDirections, v1Prompt, critique });
 

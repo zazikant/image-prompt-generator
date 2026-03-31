@@ -145,7 +145,15 @@ export default function Home() {
         }),
       });
 
-      const data: { detailedPrompt?: string; critique?: string; error?: string } = await res.json();
+      let data: { detailedPrompt?: string; critique?: string; error?: string } = {};
+      const contentType = res.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        data = await res.json();
+      } else {
+        const rawText = await res.text();
+        throw new Error(rawText || `Server Error: ${res.status}`);
+      }
+
       if (!res.ok) throw new Error(data.error || 'Failed to generate');
 
       setResult(data.detailedPrompt || '');
