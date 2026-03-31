@@ -117,62 +117,81 @@ export default function Home() {
   const [model, setModel] = useState('arcee-ai/trinity-large-preview:free');
   const [apiKey, setApiKey] = useState('');
   const [result, setResult] = useState('');
+  const [currentV1, setCurrentV1] = useState('');
   const [critique, setCritique] = useState('');
   const [useAgenticLoop, setUseAgenticLoop] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [phase, setPhase] = useState<'idle' | 'v1' | 'critique' | 'refined'>('idle');
 
-  const handleGenerate = async () => {
-    if (!apiKey) {
-      setError('Please enter your OpenRouter API key');
-      return;
+  // Helper for safe API calls
+  const callAPI = async (payload: Record<string, unknown>) => {
+    const res = await fetch('/api/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const contentType = res.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
+      const data = (await res.json()) as Record<string, unknown>;
+      if (!res.ok) throw new Error((data.error as string) || 'API Error');
+      return data;
+    } else {
+      const rawText = await res.text();
+      throw new Error(rawText || `Server Error: ${res.status}`);
     }
+  };
+
+  const handleGenerateV1 = async () => {
+    if (!apiKey) return setError('Please enter your OpenRouter API key');
     setLoading(true);
     setError('');
     setResult('');
     setCritique('');
+    setCurrentV1('');
+    setPhase('idle');
 
     try {
-      const basePayload = { systemPrompt, userDirections, model, apiKey };
+      const data = await callAPI({ systemPrompt, userDirections, model, apiKey, step: 'v1' });
+      setCurrentV1(data.v1Prompt as string);
+      setResult(data.v1Prompt as string);
+      setPhase('v1');
+    } catch (err: unknown) {
+      setError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-      // Helper for safe API calls
-      const callAPI = async (payload: Record<string, unknown>) => {
-        const res = await fetch('/api/generate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-        const contentType = res.headers.get('content-type');
-        if (contentType && contentType.includes('application/json')) {
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.error || 'API Error');
-          return data;
-        } else {
-          const rawText = await res.text();
-          throw new Error(rawText || `Server Error: ${res.status}`);
-        }
-      };
+  const handleRunCritique = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const data = await callAPI({ systemPrompt, userDirections, model, apiKey, step: 'critic', v1Prompt: currentV1 });
+      setCritique(data.critique as string);
+      setPhase('critique');
+    } catch (err: unknown) {
+      setError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-      // Step 1: V1 Generator
-      const step1 = await callAPI({ ...basePayload, step: 'v1' });
-      const currentV1 = step1.v1Prompt;
-      setResult(currentV1);
-
-      if (useAgenticLoop) {
-        // Step 2: Critic
-        const step2 = await callAPI({ ...basePayload, step: 'critic', v1Prompt: currentV1 });
-        const currentCritique = step2.critique;
-        setCritique(currentCritique);
-
-        // Step 3: Refiner
-        const step3 = await callAPI({ 
-          ...basePayload, 
-          step: 'refine', 
-          v1Prompt: currentV1, 
-          critique: currentCritique 
-        });
-        setResult(step3.detailedPrompt);
-      }
+  const handleApplyRefinement = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const data = await callAPI({ 
+        systemPrompt, 
+        userDirections, 
+        model, 
+        apiKey, 
+        step: 'refine', 
+        v1Prompt: currentV1, 
+        critique 
+      });
+      setResult(data.detailedPrompt as string);
+      setPhase('refined');
     } catch (err: unknown) {
       setError((err as Error).message);
     } finally {
@@ -279,35 +298,51 @@ export default function Home() {
         </div>
 
         <button
-          onClick={handleGenerate}
+          onClick={handleGenerateV1}
           disabled={loading || !userDirections.trim()}
           className={`w-full py-5 rounded-2xl font-semibold text-xl transition-all ${
-            useAgenticLoop 
-              ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-500 hover:to-indigo-500' 
-              : 'bg-white text-black hover:bg-zinc-200'
+            phase !== 'idle'
+              ? 'bg-zinc-800 text-white hover:bg-zinc-700'
+              : useAgenticLoop 
+                ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-500 hover:to-indigo-500' 
+                : 'bg-white text-black hover:bg-zinc-200'
           } disabled:opacity-50`}
         >
-          {loading 
-            ? 'Running Loop...' 
-            : useAgenticLoop 
-              ? 'Run Agentic Reflection Loop' 
-              : 'Generate AI Meta-Prompt'
+          {loading && phase === 'idle'
+            ? 'Initializing...' 
+            : phase !== 'idle'
+              ? 'Regenerate Base Prompt'
+              : useAgenticLoop 
+                ? 'Start Agentic Reflection' 
+                : 'Generate AI Meta-Prompt'
           }
         </button>
 
         {error && <p className="mt-4 text-red-400 text-center">{error}</p>}
 
-        {critique && (
-          <div className="mt-8 bg-zinc-900 border border-yellow-700/50 rounded-2xl p-6">
-            <h3 className="text-xl font-semibold mb-3 text-yellow-500">Agentic Reflection (Critique)</h3>
-            <p className="text-sm text-zinc-300 leading-relaxed max-h-[200px] overflow-auto border-l-2 border-yellow-600 pl-4 whitespace-pre-wrap">{critique}</p>
-          </div>
-        )}
-
         {result && (
           <div className="mt-8">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-2xl font-semibold">Generated Prompt</h3>
+              <div className="flex items-center gap-4">
+                <h3 className="text-2xl font-semibold">
+                  {phase === 'v1' ? 'Base Prompt (v1)' : 'Refined Master Prompt'}
+                </h3>
+                {phase === 'v1' && useAgenticLoop && (
+                  <span className="px-3 py-1 bg-blue-500/20 text-blue-400 text-xs rounded-full border border-blue-500/30 font-mono">
+                    Phase 1 Complete
+                  </span>
+                )}
+                {phase === 'critique' && (
+                  <span className="px-3 py-1 bg-yellow-500/20 text-yellow-400 text-xs rounded-full border border-yellow-500/30 font-mono">
+                    Phase 2: Reviewing...
+                  </span>
+                )}
+                {phase === 'refined' && (
+                  <span className="px-3 py-1 bg-green-500/20 text-green-400 text-xs rounded-full border border-green-500/30 font-mono">
+                    Finalized ✨
+                  </span>
+                )}
+              </div>
               <button
                 onClick={copyToClipboard}
                 className="bg-zinc-800 hover:bg-zinc-700 px-6 py-2 rounded-xl text-sm"
@@ -318,6 +353,35 @@ export default function Home() {
             <pre className="bg-black border border-zinc-800 rounded-3xl p-8 whitespace-pre-wrap text-sm leading-relaxed overflow-auto max-h-[400px]">
               {result}
             </pre>
+
+            {useAgenticLoop && phase === 'v1' && (
+              <button
+                onClick={handleRunCritique}
+                disabled={loading}
+                className="mt-6 w-full py-4 bg-yellow-600/20 text-yellow-500 border border-yellow-600/30 rounded-2xl font-semibold hover:bg-yellow-600/30 transition-all disabled:opacity-50"
+              >
+                {loading ? 'Architect is reviewing...' : '🔍 Run Architect Review (Human-in-the-Loop Step 2)'}
+              </button>
+            )}
+          </div>
+        )}
+
+        {critique && (
+          <div className="mt-8 animate-in fade-in slide-in-from-top-4 duration-500">
+            <div className="bg-zinc-900 border border-yellow-700/50 rounded-2xl p-6">
+              <h3 className="text-xl font-semibold mb-3 text-yellow-500">Agentic Reflection (Critique)</h3>
+              <p className="text-sm text-zinc-300 leading-relaxed max-h-[200px] overflow-auto border-l-2 border-yellow-600 pl-4 whitespace-pre-wrap">{critique}</p>
+            </div>
+
+            {phase === 'critique' && (
+              <button
+                onClick={handleApplyRefinement}
+                disabled={loading}
+                className="mt-6 w-full py-5 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-2xl font-bold text-lg hover:from-green-500 hover:to-emerald-500 shadow-lg shadow-green-900/20 transition-all disabled:opacity-50"
+              >
+                {loading ? 'Surgically Refining...' : '✨ Apply Refinement & Finalize (Step 3)'}
+              </button>
+            )}
           </div>
         )}
       </div>
