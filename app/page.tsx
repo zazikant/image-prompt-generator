@@ -124,22 +124,35 @@ export default function Home() {
   const [error, setError] = useState('');
   const [phase, setPhase] = useState<'idle' | 'v1' | 'critique' | 'refined'>('idle');
 
-  // Helper for safe API calls
-  const callAPI = async (payload: Record<string, unknown>) => {
+  // Helper for streaming API calls
+  const callStreamAPI = async (
+    payload: Record<string, unknown>,
+    onChunk: (chunk: string) => void
+  ) => {
     const res = await fetch('/api/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    const contentType = res.headers.get('content-type');
-    if (contentType && contentType.includes('application/json')) {
-      const data = (await res.json()) as Record<string, unknown>;
-      if (!res.ok) throw new Error((data.error as string) || 'API Error');
-      return data;
-    } else {
-      const rawText = await res.text();
-      throw new Error(rawText || `Server Error: ${res.status}`);
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(text || `API Error: ${res.status}`);
     }
+
+    const reader = res.body?.getReader();
+    const decoder = new TextDecoder();
+    if (!reader) throw new Error('No response body');
+
+    let accumulated = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = decoder.decode(value, { stream: true });
+      accumulated += chunk;
+      onChunk(accumulated);
+    }
+    return accumulated;
   };
 
   const handleGenerateV1 = async () => {
@@ -152,10 +165,15 @@ export default function Home() {
     setPhase('idle');
 
     try {
-      const data = await callAPI({ systemPrompt, userDirections, model, apiKey, step: 'v1' });
-      setCurrentV1(data.v1Prompt as string);
-      setResult(data.v1Prompt as string);
+      const fullV1 = await callStreamAPI(
+        { systemPrompt, userDirections, model, apiKey, step: 'v1' },
+        (chunk) => {
+          setResult(chunk);
+          setCurrentV1(chunk);
+        }
+      );
       setPhase('v1');
+      console.log('Phase 1 Complete:', fullV1);
     } catch (err: unknown) {
       setError((err as Error).message);
     } finally {
@@ -166,9 +184,12 @@ export default function Home() {
   const handleRunCritique = async () => {
     setLoading(true);
     setError('');
+    setCritique('');
     try {
-      const data = await callAPI({ systemPrompt, userDirections, model, apiKey, step: 'critic', v1Prompt: currentV1 });
-      setCritique(data.critique as string);
+      await callStreamAPI(
+        { systemPrompt, userDirections, model, apiKey, step: 'critic', v1Prompt: currentV1 },
+        (chunk) => setCritique(chunk)
+      );
       setPhase('critique');
     } catch (err: unknown) {
       setError((err as Error).message);
@@ -180,17 +201,21 @@ export default function Home() {
   const handleApplyRefinement = async () => {
     setLoading(true);
     setError('');
+    // Clear result for refinement streaming
+    setResult('');
     try {
-      const data = await callAPI({ 
-        systemPrompt, 
-        userDirections, 
-        model, 
-        apiKey, 
-        step: 'refine', 
-        v1Prompt: currentV1, 
-        critique 
-      });
-      setResult(data.detailedPrompt as string);
+      await callStreamAPI(
+        { 
+          systemPrompt, 
+          userDirections, 
+          model, 
+          apiKey, 
+          step: 'refine', 
+          v1Prompt: currentV1, 
+          critique 
+        },
+        (chunk) => setResult(chunk)
+      );
       setPhase('refined');
     } catch (err: unknown) {
       setError((err as Error).message);

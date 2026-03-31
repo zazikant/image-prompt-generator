@@ -11,8 +11,8 @@ export async function POST(req: NextRequest) {
       model, 
       apiKey, 
       step, 
-      v1Prompt: v1FromClient, 
-      critique: critiqueFromClient 
+      v1Prompt, 
+      critique
     } = await req.json();
 
     if (!apiKey || !model || !userDirections?.trim()) {
@@ -25,34 +25,47 @@ export async function POST(req: NextRequest) {
       config: { model: model.trim() },
     });
 
-    // Helper to safely escape docstrings for Ax signatures
-    const safeDoc = systemPrompt.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    const encoder = new TextEncoder();
 
-    // Step 1: V1 Generator
-    if (step === 'v1' || !step) {
-      const v1Signature = `"${safeDoc}" userDirections:string -> v1Prompt:string`;
-      const promptEngineer = ax(v1Signature);
-      const v1Result = await promptEngineer.forward(llm, { userDirections });
-      return NextResponse.json({ v1Prompt: String(v1Result?.v1Prompt || '') });
-    }
+    const stream = new ReadableStream({
+      async start(controller) {
+        try {
+          if (step === 'v1' || !step) {
+            const signature = 'systemPrompt:string, userDirections:string -> v1Prompt:string';
+            const gen = ax(signature);
+            const res = await gen.forward(llm, { systemPrompt, userDirections }, { stream: true }) as unknown as AsyncIterable<any>;
+            for await (const chunk of res) {
+              if (chunk.v1Prompt) controller.enqueue(encoder.encode(chunk.v1Prompt));
+            }
+          } else if (step === 'critic') {
+            const signature = '"You are a Senior Principal Architect. Review this V1 meta-prompt against the original goal defined above. Identify missing technical requirements, security flaws, or unhandled edge cases. Output a concise critique highlighting exactly what needs to be added to reach production-grade quality." systemPrompt:string, v1Prompt:string -> critique:string';
+            const gen = ax(signature);
+            const res = await gen.forward(llm, { systemPrompt, v1Prompt }, { stream: true }) as unknown as AsyncIterable<any>;
+            for await (const chunk of res) {
+              if (chunk.critique) controller.enqueue(encoder.encode(chunk.critique));
+            }
+          } else if (step === 'refine') {
+            const signature = '"YOU ARE A MASTER PROMPT ENGINEER. Your mission is to rebuild the [V1Prompt] by surgically integrating every technical, artistic, and structural requirement from the [Architect\'s Critique]. You MUST update all relevant sections of the original instructions to reflect the new criteria mentioned in the critique. Do not just repeat the V1—EVOLVE it into a masterpiece." systemPrompt:string, userDirections:string, v1Prompt:string, critique:string -> detailedPrompt:string';
+            const gen = ax(signature);
+            const res = await gen.forward(llm, { systemPrompt, userDirections, v1Prompt, critique }, { stream: true }) as unknown as AsyncIterable<any>;
+            for await (const chunk of res) {
+              if (chunk.detailedPrompt) controller.enqueue(encoder.encode(chunk.detailedPrompt));
+            }
+          }
+          controller.close();
+        } catch (error) {
+          controller.error(error);
+        }
+      },
+    });
 
-    // Step 2: Critic
-    if (step === 'critic') {
-      const criticSignature = `"${safeDoc}" v1Prompt:string -> critique:string "You are a Senior Principal Architect. Review this V1 meta-prompt against the original goal defined above. Identify missing technical requirements, security flaws, or unhandled edge cases. Output a concise critique highlighting exactly what needs to be added to reach production-grade quality."`;
-      const critic = ax(criticSignature);
-      const criticResult = await critic.forward(llm, { v1Prompt: v1FromClient, systemPrompt });
-      return NextResponse.json({ critique: String(criticResult?.critique || '') });
-    }
-
-    // Step 3: Refiner (V2)
-    if (step === 'refine') {
-      const refinerSignature = `"YOU ARE A MASTER PROMPT ENGINEER. Your mission is to rebuild the [V1Prompt] by surgically integrating every technical, artistic, and structural requirement from the [Architect's Critique]. You MUST update all relevant sections of the original instructions to reflect the new criteria mentioned in the critique. Do not just repeat the V1—EVOLVE it into a masterpiece. ${safeDoc}" userDirections:string, v1Prompt:string, critique:string -> detailedPrompt:string`;
-      const refiner = ax(refinerSignature);
-      const result = await refiner.forward(llm, { userDirections, v1Prompt: v1FromClient, critique: critiqueFromClient });
-      return NextResponse.json({ detailedPrompt: String(result?.detailedPrompt || '') });
-    }
-
-    return NextResponse.json({ error: 'Invalid step' }, { status: 400 });
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
+    });
   } catch (error: unknown) {
     console.error(error);
     return NextResponse.json(
