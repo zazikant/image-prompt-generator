@@ -16,8 +16,8 @@ export async function POST(req: NextRequest) {
     });
 
     // Step 1: V1 Generator
-    const signatureStr = `userDirections:string -> v1Prompt:string "${systemPrompt.replace(/"/g, '\\"')}"`;
-    const promptEngineer = ax(signatureStr);
+    const v1Signature = `"${systemPrompt.replace(/"/g, '\\"')}" userDirections:string -> v1Prompt:string`;
+    const promptEngineer = ax(v1Signature);
     const v1Result = await promptEngineer.forward(llm, { userDirections });
     const v1Prompt = String(v1Result?.v1Prompt || '');
 
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
     const critique = String(criticResult?.critique || '');
 
     // Step 3: Refiner (V2)
-    const refinerSignature = `userDirections:string, v1Prompt:string, critique:string -> detailedPrompt:string "${systemPrompt.replace(/"/g, '\\"')} Improve the V1 meta-prompt extremely rigorously by incorporating the structural critique. Output the final, mathematically perfect prompt."`;
+    const refinerSignature = `"${systemPrompt.replace(/"/g, '\\"')} Improve the V1 meta-prompt extremely rigorously by incorporating the structural critique. Output the final, mathematically perfect prompt." userDirections:string, v1Prompt:string, critique:string -> detailedPrompt:string`;
     const refiner = ax(refinerSignature);
     const result = await refiner.forward(llm, { userDirections, v1Prompt, critique });
 
