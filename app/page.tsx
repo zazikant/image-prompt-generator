@@ -133,31 +133,46 @@ export default function Home() {
     setCritique('');
 
     try {
-      const res = await fetch('/api/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          systemPrompt,
-          userDirections,
-          model,
-          apiKey,
-          useAgenticLoop,
-        }),
-      });
+      const basePayload = { systemPrompt, userDirections, model, apiKey };
 
-      let data: { detailedPrompt?: string; critique?: string; error?: string } = {};
-      const contentType = res.headers.get('content-type');
-      if (contentType && contentType.includes('application/json')) {
-        data = await res.json();
-      } else {
-        const rawText = await res.text();
-        throw new Error(rawText || `Server Error: ${res.status}`);
+      // Helper for safe API calls
+      const callAPI = async (payload: Record<string, unknown>) => {
+        const res = await fetch('/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const contentType = res.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'API Error');
+          return data;
+        } else {
+          const rawText = await res.text();
+          throw new Error(rawText || `Server Error: ${res.status}`);
+        }
+      };
+
+      // Step 1: V1 Generator
+      const step1 = await callAPI({ ...basePayload, step: 'v1' });
+      const currentV1 = step1.v1Prompt;
+      setResult(currentV1);
+
+      if (useAgenticLoop) {
+        // Step 2: Critic
+        const step2 = await callAPI({ ...basePayload, step: 'critic', v1Prompt: currentV1 });
+        const currentCritique = step2.critique;
+        setCritique(currentCritique);
+
+        // Step 3: Refiner
+        const step3 = await callAPI({ 
+          ...basePayload, 
+          step: 'refine', 
+          v1Prompt: currentV1, 
+          critique: currentCritique 
+        });
+        setResult(step3.detailedPrompt);
       }
-
-      if (!res.ok) throw new Error(data.error || 'Failed to generate');
-
-      setResult(data.detailedPrompt || '');
-      setCritique(data.critique || '');
     } catch (err: unknown) {
       setError((err as Error).message);
     } finally {
