@@ -3,7 +3,7 @@ import { ai, ax } from '@ax-llm/ax';
 
 export async function POST(req: NextRequest) {
   try {
-    const { systemPrompt, userDirections, model, apiKey } = await req.json();
+    const { systemPrompt, userDirections, model, apiKey, useAgenticLoop } = await req.json();
 
     if (!apiKey || !model || !userDirections?.trim()) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
@@ -20,6 +20,14 @@ export async function POST(req: NextRequest) {
     const promptEngineer = ax(signatureStr);
     const v1Result = await promptEngineer.forward(llm, { userDirections });
     const v1Prompt = String(v1Result?.v1Prompt || '');
+
+    if (!useAgenticLoop) {
+      return NextResponse.json({ 
+        detailedPrompt: v1Prompt, 
+        critique: '', 
+        v1Prompt 
+      });
+    }
 
     // Step 2: Critic
     const criticSignature = `v1Prompt:string -> critique:string "You are a Senior Principal Architect. Review this V1 meta-prompt for missing technical requirements, security flaws, missing libraries, or unhandled edge cases based on the user's intent. Output a concise critique highlighting exactly what needs to be added or fixed to make it a bulletproof, production-grade meta-prompt."`;

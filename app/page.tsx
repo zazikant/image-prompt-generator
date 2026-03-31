@@ -118,6 +118,7 @@ export default function Home() {
   const [apiKey, setApiKey] = useState('');
   const [result, setResult] = useState('');
   const [critique, setCritique] = useState('');
+  const [useAgenticLoop, setUseAgenticLoop] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -140,6 +141,7 @@ export default function Home() {
           userDirections,
           model,
           apiKey,
+          useAgenticLoop,
         }),
       });
 
@@ -176,13 +178,19 @@ export default function Home() {
             </div>
             <div className="flex gap-4">
               <button
-                onClick={() => setSystemPrompt(DEFAULT_SYSTEM_PROMPT)}
+                onClick={() => {
+                  setSystemPrompt(DEFAULT_SYSTEM_PROMPT);
+                  setUseAgenticLoop(false);
+                }}
                 className="text-blue-400 hover:text-blue-300 text-sm underline"
               >
                 Load Image Prompt
               </button>
               <button
-                onClick={() => setSystemPrompt(TECH_DEV_SYSTEM_PROMPT)}
+                onClick={() => {
+                  setSystemPrompt(TECH_DEV_SYSTEM_PROMPT);
+                  setUseAgenticLoop(false);
+                }}
                 className="text-green-400 hover:text-green-300 text-sm underline"
               >
                 Load Tech Dev Prompt
@@ -229,12 +237,39 @@ export default function Home() {
           </div>
         </div>
 
+        <div className="mb-8 flex items-center gap-3 bg-zinc-900/50 border border-zinc-800 p-4 rounded-2xl">
+          <input
+            type="checkbox"
+            id="agenticToggle"
+            checked={useAgenticLoop}
+            onChange={(e) => setUseAgenticLoop(e.target.checked)}
+            className="w-5 h-5 accent-blue-500"
+          />
+          <div>
+            <label htmlFor="agenticToggle" className="block text-sm font-semibold cursor-pointer">
+              Enable Agentic Reflection (Critic + Refiner)
+            </label>
+            <p className="text-xs text-zinc-500">
+              Run a 3-step loop to critique and improve the meta-prompt. Turn off for &quot;first runs&quot;.
+            </p>
+          </div>
+        </div>
+
         <button
           onClick={handleGenerate}
           disabled={loading || !userDirections.trim()}
-          className="w-full bg-white text-black py-5 rounded-2xl font-semibold text-xl hover:bg-zinc-200 disabled:opacity-50 transition-all"
+          className={`w-full py-5 rounded-2xl font-semibold text-xl transition-all ${
+            useAgenticLoop 
+              ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-500 hover:to-indigo-500' 
+              : 'bg-white text-black hover:bg-zinc-200'
+          } disabled:opacity-50`}
         >
-          {loading ? 'Running Agentic Reflection Loop...' : 'Generate AI Meta-Prompt'}
+          {loading 
+            ? 'Running Loop...' 
+            : useAgenticLoop 
+              ? 'Run Agentic Reflection Loop' 
+              : 'Generate AI Meta-Prompt'
+          }
         </button>
 
         {error && <p className="mt-4 text-red-400 text-center">{error}</p>}
