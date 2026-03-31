@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
     const critique = String(criticResult?.critique || '');
 
     // Step 3: Refiner (V2)
-    const refinerSignature = `"${systemPrompt.replace(/"/g, '\\"')} Improve the V1 meta-prompt extremely rigorously by incorporating the structural critique. Output the final, mathematically perfect prompt." userDirections:string, v1Prompt:string, critique:string -> detailedPrompt:string`;
+    const refinerSignature = `"YOU ARE A MASTER PROMPT ENGINEER. Your mission is to rebuild the [V1Prompt] by surgically integrating every technical requirement from the [Architect's Critique]. You MUST update the Tech Stack, Key Constraints, and Requirements sections in the original docstring to reflect new Security, Infrastructure, and Observability rules. Do not just repeat the V1—EVOLVE it into a production-grade masterpiece. ${systemPrompt.replace(/"/g, '\\"')}" userDirections:string, v1Prompt:string, critique:string -> detailedPrompt:string`;
     const refiner = ax(refinerSignature);
     const result = await refiner.forward(llm, { userDirections, v1Prompt, critique });
 
